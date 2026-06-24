@@ -249,6 +249,64 @@ static cJSON *cJSON_New_Item(const internal_hooks * const hooks)
     return node;
 }
 
+static void set_number_value(cJSON * const item, double num)
+{
+    item->valuedouble = num;
+
+    if (num >= INT_MAX)
+    {
+        item->valueint = INT_MAX;
+    }
+    else if (num <= (double)INT_MIN)
+    {
+        item->valueint = INT_MIN;
+    }
+    else
+    {
+        item->valueint = (int)num;
+    }
+}
+
+static void set_boolean_value(cJSON * const item, cJSON_bool boolean)
+{
+    if (boolean)
+    {
+        item->type = (item->type & 0xFF00) | cJSON_True;
+    }
+    else
+    {
+        item->type = (item->type & 0xFF00) | cJSON_False;
+    }
+
+    set_number_value(item, boolean ? 1.0 : 0.0);
+}
+
+static void normalize_value_fields(cJSON * const item)
+{
+    if (item == NULL)
+    {
+        return;
+    }
+
+    if (item->type & cJSON_True)
+    {
+        set_number_value(item, 1.0);
+    }
+    else if (item->type & cJSON_False)
+    {
+        set_number_value(item, 0.0);
+    }
+    else if (item->type & cJSON_Number)
+    {
+        set_number_value(item, item->valuedouble);
+    }
+    else
+    {
+        item->valueint = 0;
+        item->valuedouble = 0.0;
+    }
+}
+
 /* Delete a cJSON structure. */
 CJSON_PUBLIC(void) cJSON_Delete(cJSON *item)
 {
@@ -383,23 +441,8 @@ loop_end:
         return false; /* parse_error */
     }
 
-    item->valuedouble = number;
-
-    /* use saturation in case of overflow */
-    if (number >= INT_MAX)
-    {
-        item->valueint = INT_MAX;
-    }
-    else if (number <= (double)INT_MIN)
-    {
-        item->valueint = INT_MIN;
-    }
-    else
-    {
-        item->valueint = (int)number;
-    }
-
     item->type = cJSON_Number;
+    set_number_value(item, number);
 
     input_buffer->offset += (size_t)(after_end - number_c_string);
     /* free the temporary buffer */
@@ -415,20 +458,10 @@ CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number)
         return (double)NAN;
     }
 
-    if (number >= INT_MAX)
-    {
-        object->valueint = INT_MAX;
-    }
-    else if (number <= (double)INT_MIN)
-    {
-        object->valueint = INT_MIN;
-    }
-    else
-    {
-        object->valueint = (int)number;
-    }
+    object->type = (object->type & 0xFF00) | cJSON_Number;
+    set_number_value(object, number);
 
-    return object->valuedouble = number;
+    return object->valuedouble;
 }
 
 /* Note: when passing a NULL valuestring, cJSON_SetValuestring treats this as an error and return NULL */
@@ -597,15 +630,32 @@ static cJSON_bool print_number(const cJSON * const item, printbuffer * const out
 {
     unsigned char *output_pointer = NULL;
     double d = item->valuedouble;
+    int int_value;
     int length = 0;
     size_t i = 0;
     unsigned char number_buffer[26] = {0}; /* temporary buffer to print the number into */
     unsigned char decimal_point = get_decimal_point();
     double test = 0.0;
+    double neg_zero = -0.0;
+    unsigned char d_bytes[sizeof(double)];
+    unsigned char neg_zero_bytes[sizeof(double)];
 
     if (output_buffer == NULL)
     {
         return false;
+    }
+
+    if (d >= INT_MAX)
+    {
+        int_value = INT_MAX;
+    }
+    else if (d <= (double)INT_MIN)
+    {
+        int_value = INT_MIN;
+    }
+    else
+    {
+        int_value = (int)d;
     }
 
     /* This checks for NaN and Infinity */
@@ -613,20 +663,31 @@ static cJSON_bool print_number(const cJSON * const item, printbuffer * const out
     {
         length = sprintf((char*)number_buffer, "null");
     }
-    else if(d == (double)item->valueint)
-    {
-        length = sprintf((char*)number_buffer, "%d", item->valueint);
-    }
     else
     {
-        /* Try 15 decimal places of precision to avoid nonsignificant nonzero digits */
-        length = sprintf((char*)number_buffer, "%1.15g", d);
-
-        /* Check whether the original double can be recovered */
-        if ((sscanf((char*)number_buffer, "%lg", &test) != 1) || !compare_double((double)test, d))
+        /* Check for negative zero using memcmp since -0.0 == 0.0 */
+        memcpy(d_bytes, &d, sizeof(double));
+        memcpy(neg_zero_bytes, &neg_zero, sizeof(double));
+        if (memcmp(d_bytes, neg_zero_bytes, sizeof(double)) == 0)
         {
-            /* If not, print with 17 decimal places of precision */
-            length = sprintf((char*)number_buffer, "%1.17g", d);
+            length = sprintf((char*)number_buffer, "-0");
+        }
+        else if (d == (double)int_value && d >= (double)INT_MIN && d <= (double)INT_MAX)
+        {
+            /* Small exact integer, print as int */
+            length = sprintf((char*)number_buffer, "%d", int_value);
+        }
+        else
+        {
+            /* Try 15 decimal places of precision to avoid nonsignificant nonzero digits */
+            length = sprintf((char*)number_buffer, "%1.15g", d);
+
+            /* Check whether the original double can be recovered bit-exactly */
+            if ((sscanf((char*)number_buffer, "%lg", &test) != 1) || isnan(test) || isinf(test) || memcmp(&d, &test, sizeof(double)) != 0)
+            {
+                /* If not, print with 17 decimal places of precision */
+                length = sprintf((char*)number_buffer, "%1.17g", d);
+            }
         }
     }
 
@@ -1380,19 +1441,18 @@ static cJSON_bool parse_value(cJSON * const item, parse_buffer * const input_buf
         input_buffer->offset += 4;
         return true;
     }
-    /* false */
-    if (can_read(input_buffer, 5) && (strncmp((const char*)buffer_at_offset(input_buffer), "false", 5) == 0))
-    {
-        item->type = cJSON_False;
-        input_buffer->offset += 5;
-        return true;
-    }
     /* true */
     if (can_read(input_buffer, 4) && (strncmp((const char*)buffer_at_offset(input_buffer), "true", 4) == 0))
     {
-        item->type = cJSON_True;
-        item->valueint = 1;
+        set_boolean_value(item, true);
         input_buffer->offset += 4;
+        return true;
+    }
+    /* false */
+    if (can_read(input_buffer, 5) && (strncmp((const char*)buffer_at_offset(input_buffer), "false", 5) == 0))
+    {
+        set_boolean_value(item, false);
+        input_buffer->offset += 5;
         return true;
     }
     /* string */
@@ -2021,6 +2081,7 @@ static cJSON *create_reference(const cJSON *item, const internal_hooks * const h
     reference->string = NULL;
     reference->type |= cJSON_IsReference;
     reference->next = reference->prev = NULL;
+    normalize_value_fields(reference);
     return reference;
 }
 
@@ -2474,7 +2535,7 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateTrue(void)
     cJSON *item = cJSON_New_Item(&global_hooks);
     if(item)
     {
-        item->type = cJSON_True;
+        set_boolean_value(item, true);
     }
 
     return item;
@@ -2485,7 +2546,7 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateFalse(void)
     cJSON *item = cJSON_New_Item(&global_hooks);
     if(item)
     {
-        item->type = cJSON_False;
+        set_boolean_value(item, false);
     }
 
     return item;
@@ -2496,7 +2557,7 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateBool(cJSON_bool boolean)
     cJSON *item = cJSON_New_Item(&global_hooks);
     if(item)
     {
-        item->type = boolean ? cJSON_True : cJSON_False;
+        set_boolean_value(item, boolean);
     }
 
     return item;
@@ -2508,21 +2569,7 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateNumber(double num)
     if(item)
     {
         item->type = cJSON_Number;
-        item->valuedouble = num;
-
-        /* use saturation in case of overflow */
-        if (num >= INT_MAX)
-        {
-            item->valueint = INT_MAX;
-        }
-        else if (num <= (double)INT_MIN)
-        {
-            item->valueint = INT_MIN;
-        }
-        else
-        {
-            item->valueint = (int)num;
-        }
+        set_number_value(item, num);
     }
 
     return item;
@@ -2808,6 +2855,7 @@ cJSON * cJSON_Duplicate_rec(const cJSON *item, size_t depth, cJSON_bool recurse)
     newitem->type = item->type & (~cJSON_IsReference);
     newitem->valueint = item->valueint;
     newitem->valuedouble = item->valuedouble;
+    normalize_value_fields(newitem);
     if (item->valuestring)
     {
         newitem->valuestring = (char*)cJSON_strdup((unsigned char*)item->valuestring, &global_hooks);

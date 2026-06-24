@@ -601,6 +601,22 @@ static void sort_object(cJSON * const object, const cJSON_bool case_sensitive)
     object->child = sort_list(object->child, case_sensitive);
 }
 
+static int get_int_value(double d)
+{
+    if (d >= INT_MAX)
+    {
+        return INT_MAX;
+    }
+    else if (d <= (double)INT_MIN)
+    {
+        return INT_MIN;
+    }
+    else
+    {
+        return (int)d;
+    }
+}
+
 static cJSON_bool compare_json(cJSON *a, cJSON *b, const cJSON_bool case_sensitive)
 {
     if ((a == NULL) || (b == NULL) || ((a->type & 0xFF) != (b->type & 0xFF)))
@@ -612,7 +628,7 @@ static cJSON_bool compare_json(cJSON *a, cJSON *b, const cJSON_bool case_sensiti
     {
         case cJSON_Number:
             /* numeric mismatch. */
-            if ((a->valueint != b->valueint) || (!compare_double(a->valuedouble, b->valuedouble)))
+            if ((get_int_value(a->valuedouble) != get_int_value(b->valuedouble)) || (!compare_double(a->valuedouble, b->valuedouble)))
             {
                 return false;
             }
@@ -781,6 +797,48 @@ static enum patch_operation decode_patch_operation(const cJSON * const patch, co
 }
 
 /* overwrite and existing item with another one and free resources on the way */
+static void normalize_value_fields(cJSON * const item)
+{
+    if (item == NULL)
+    {
+        return;
+    }
+
+    if (item->type & cJSON_True)
+    {
+        item->valueint = 1;
+        item->valuedouble = 1.0;
+    }
+    else if (item->type & cJSON_False)
+    {
+        item->valueint = 0;
+        item->valuedouble = 0.0;
+    }
+    else if (item->type & cJSON_Number)
+    {
+        double num = item->valuedouble;
+        item->valuedouble = num;
+
+        if (num >= INT_MAX)
+        {
+            item->valueint = INT_MAX;
+        }
+        else if (num <= (double)INT_MIN)
+        {
+            item->valueint = INT_MIN;
+        }
+        else
+        {
+            item->valueint = (int)num;
+        }
+    }
+    else
+    {
+        item->valueint = 0;
+        item->valuedouble = 0.0;
+    }
+}
+
 static void overwrite_item(cJSON * const root, const cJSON replacement)
 {
     if (root == NULL)
@@ -802,6 +860,7 @@ static void overwrite_item(cJSON * const root, const cJSON replacement)
     }
 
     memcpy(root, &replacement, sizeof(cJSON));
+    normalize_value_fields(root);
 }
 
 static int apply_patch(cJSON *object, const cJSON *patch, const cJSON_bool case_sensitive)
@@ -1154,7 +1213,7 @@ static void create_patches(cJSON * const patches, const unsigned char * const pa
     switch (from->type & 0xFF)
     {
         case cJSON_Number:
-            if ((from->valueint != to->valueint) || !compare_double(from->valuedouble, to->valuedouble))
+            if ((get_int_value(from->valuedouble) != get_int_value(to->valuedouble)) || !compare_double(from->valuedouble, to->valuedouble))
             {
                 compose_patch(patches, (const unsigned char*)"replace", path, NULL, to);
             }
