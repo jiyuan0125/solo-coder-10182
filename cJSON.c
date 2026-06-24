@@ -464,6 +464,21 @@ CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number)
     return object->valuedouble;
 }
 
+/* helper for the cJSON_SetBoolValue macro */
+CJSON_PUBLIC(int) cJSON_SetBoolHelper(cJSON *object, cJSON_bool boolValue)
+{
+    cJSON_bool boolean = boolValue != 0 ? 1 : 0;
+
+    if (object == NULL)
+    {
+        return cJSON_Invalid;
+    }
+
+    set_boolean_value(object, boolean);
+
+    return object->type & (cJSON_False | cJSON_True);
+}
+
 /* Note: when passing a NULL valuestring, cJSON_SetValuestring treats this as an error and return NULL */
 CJSON_PUBLIC(char*) cJSON_SetValuestring(cJSON *object, const char *valuestring)
 {
@@ -2437,6 +2452,9 @@ CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON * const parent, cJSON
     {
         return true;
     }
+
+    /* Ensure replacement's value fields are consistent before splicing into the list */
+    normalize_value_fields(replacement);
 
     replacement->next = item->next;
     replacement->prev = item->prev;

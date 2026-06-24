@@ -285,10 +285,11 @@ CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number);
 /* Change the valuestring of a cJSON_String object, only takes effect when type of object is cJSON_String */
 CJSON_PUBLIC(char*) cJSON_SetValuestring(cJSON *object, const char *valuestring);
 
-/* If the object is not a boolean type this does nothing and returns cJSON_Invalid else it returns the new type*/
+/* helper for the cJSON_SetBoolValue macro */
+CJSON_PUBLIC(int) cJSON_SetBoolHelper(cJSON *object, cJSON_bool boolValue);
+/* Set the boolean value of an object. Returns cJSON_Invalid if object is NULL, else returns the new type */
 #define cJSON_SetBoolValue(object, boolValue) ( \
-    (object != NULL && ((object)->type & (cJSON_False|cJSON_True))) ? \
-    (object)->type=((object)->type &(~(cJSON_False|cJSON_True)))|((boolValue)?cJSON_True:cJSON_False) : \
+    (object != NULL) ? cJSON_SetBoolHelper(object, (boolValue) != 0 ? 1 : 0) : \
     cJSON_Invalid\
 )
 

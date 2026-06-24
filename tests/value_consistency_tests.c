@@ -339,49 +339,96 @@ static void replace_item_in_object_number_replaces_bool(void)
 
 static void set_bool_value_toggle_maintains_print_consistency(void)
 {
-    cJSON *true_item = cJSON_CreateTrue();
-    cJSON *false_item = cJSON_CreateFalse();
-    char *printed;
+    double test_values[] = {1e20, -0.0, (double)INT_MAX};
+    size_t i;
 
-    TEST_ASSERT_NOT_NULL(true_item);
-    TEST_ASSERT_NOT_NULL(false_item);
+    for (i = 0; i < sizeof(test_values) / sizeof(test_values[0]); i++)
+    {
+        cJSON *item = cJSON_CreateNumber(test_values[i]);
+        char *printed;
 
-    cJSON_SetBoolValue(true_item, false);
-    printed = cJSON_PrintUnformatted(true_item);
-    TEST_ASSERT_EQUAL_STRING("false", printed);
-    cJSON_free(printed);
+        TEST_ASSERT_NOT_NULL(item);
+        TEST_ASSERT_TRUE(cJSON_IsNumber(item));
 
-    cJSON_SetBoolValue(false_item, true);
-    printed = cJSON_PrintUnformatted(false_item);
-    TEST_ASSERT_EQUAL_STRING("true", printed);
-    cJSON_free(printed);
+        /* Toggle to false */
+        cJSON_SetBoolValue(item, false);
+        printed = cJSON_PrintUnformatted(item);
+        TEST_ASSERT_EQUAL_STRING("false", printed);
+        cJSON_free(printed);
+        assert_value_fields_consistent(item);
+        TEST_ASSERT_TRUE(cJSON_IsFalse(item));
+        TEST_ASSERT_EQUAL_INT(0, item->valueint);
+        TEST_ASSERT_EQUAL_DOUBLE(0.0, item->valuedouble);
 
-    cJSON_Delete(true_item);
-    cJSON_Delete(false_item);
+        /* Toggle to true */
+        cJSON_SetBoolValue(item, true);
+        printed = cJSON_PrintUnformatted(item);
+        TEST_ASSERT_EQUAL_STRING("true", printed);
+        cJSON_free(printed);
+        assert_value_fields_consistent(item);
+        TEST_ASSERT_TRUE(cJSON_IsTrue(item));
+        TEST_ASSERT_EQUAL_INT(1, item->valueint);
+        TEST_ASSERT_EQUAL_DOUBLE(1.0, item->valuedouble);
+
+        /* Toggle back to false */
+        cJSON_SetBoolValue(item, false);
+        printed = cJSON_PrintUnformatted(item);
+        TEST_ASSERT_EQUAL_STRING("false", printed);
+        cJSON_free(printed);
+        assert_value_fields_consistent(item);
+        TEST_ASSERT_TRUE(cJSON_IsFalse(item));
+        TEST_ASSERT_EQUAL_INT(0, item->valueint);
+        TEST_ASSERT_EQUAL_DOUBLE(0.0, item->valuedouble);
+
+        cJSON_Delete(item);
+    }
 }
 
 static void set_bool_value_toggle_maintains_duplicate_consistency(void)
 {
-    cJSON *item = cJSON_CreateTrue();
-    cJSON *dup;
+    double test_values[] = {1e20, -0.0, (double)INT_MAX};
+    size_t i;
 
-    TEST_ASSERT_NOT_NULL(item);
+    for (i = 0; i < sizeof(test_values) / sizeof(test_values[0]); i++)
+    {
+        cJSON *item = cJSON_CreateNumber(test_values[i]);
+        cJSON *dup;
 
-    cJSON_SetBoolValue(item, false);
-    dup = cJSON_Duplicate(item, 0);
-    TEST_ASSERT_NOT_NULL(dup);
-    assert_value_fields_consistent(dup);
-    TEST_ASSERT_TRUE(cJSON_IsFalse(dup));
-    cJSON_Delete(dup);
+        TEST_ASSERT_NOT_NULL(item);
+        TEST_ASSERT_TRUE(cJSON_IsNumber(item));
 
-    cJSON_SetBoolValue(item, true);
-    dup = cJSON_Duplicate(item, 0);
-    TEST_ASSERT_NOT_NULL(dup);
-    assert_value_fields_consistent(dup);
-    TEST_ASSERT_TRUE(cJSON_IsTrue(dup));
+        /* Toggle to false and duplicate */
+        cJSON_SetBoolValue(item, false);
+        dup = cJSON_Duplicate(item, 0);
+        TEST_ASSERT_NOT_NULL(dup);
+        assert_value_fields_consistent(dup);
+        TEST_ASSERT_TRUE(cJSON_IsFalse(dup));
+        TEST_ASSERT_EQUAL_INT(0, dup->valueint);
+        TEST_ASSERT_EQUAL_DOUBLE(0.0, dup->valuedouble);
+        cJSON_Delete(dup);
 
-    cJSON_Delete(item);
-    cJSON_Delete(dup);
+        /* Toggle to true and duplicate */
+        cJSON_SetBoolValue(item, true);
+        dup = cJSON_Duplicate(item, 0);
+        TEST_ASSERT_NOT_NULL(dup);
+        assert_value_fields_consistent(dup);
+        TEST_ASSERT_TRUE(cJSON_IsTrue(dup));
+        TEST_ASSERT_EQUAL_INT(1, dup->valueint);
+        TEST_ASSERT_EQUAL_DOUBLE(1.0, dup->valuedouble);
+        cJSON_Delete(dup);
+
+        /* Toggle back to false and duplicate */
+        cJSON_SetBoolValue(item, false);
+        dup = cJSON_Duplicate(item, 0);
+        TEST_ASSERT_NOT_NULL(dup);
+        assert_value_fields_consistent(dup);
+        TEST_ASSERT_TRUE(cJSON_IsFalse(dup));
+        TEST_ASSERT_EQUAL_INT(0, dup->valueint);
+        TEST_ASSERT_EQUAL_DOUBLE(0.0, dup->valuedouble);
+        cJSON_Delete(dup);
+
+        cJSON_Delete(item);
+    }
 }
 
 static void print_parse_roundtrip_preserves_valuedouble_bit_exact(void)
